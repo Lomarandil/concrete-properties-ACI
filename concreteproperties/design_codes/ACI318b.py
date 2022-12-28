@@ -19,19 +19,19 @@ if TYPE_CHECKING:
     from concreteproperties.concrete_section import ConcreteSection
 
 
-class AS3600(DesignCode):
-    """Design code class for Australian standard AS 3600:2018.
+class ACI318(DesignCode):
+    """Design code class for American standard ACI 318-19.
 
     .. note::
         Note that this design code only supports
         :class:`~concreteproperties.material.Concrete` and
         :class:`~concreteproperties.material.SteelBar` material objects. Meshed
         :class:`~concreteproperties.material.Steel` material objects are **not**
-        supported as this falls under the composite structures design code.
+        currently supported.
     """
 
     def __init__(self):
-        """Inits the AS3600 class."""
+        """Inits the ACI318 class."""
 
         super().__init__()
 
@@ -52,19 +52,7 @@ class AS3600(DesignCode):
                 "Meshed reinforcement is not supported in this design code."
             )
 
-        # determine reinforcement class
-        self.reinforcement_class = "N"
-
-        for steel_geom in self.concrete_section.reinf_geometries_lumped:
-            if (
-                abs(
-                    steel_geom.material.stress_strain_profile.get_ultimate_tensile_strain()
-                )
-                < 0.05
-            ):
-                self.reinforcement_class = "L"
-
-        # calculate squash and tensile load
+         calculate squash and tensile load
         squash, tensile = self.squash_tensile_load()
         self.squash_load = squash
         self.tensile_load = tensile
@@ -72,69 +60,77 @@ class AS3600(DesignCode):
     def create_concrete_material(
         self,
         compressive_strength: float,
+        density: float = 2400,
         colour: str = "lightgrey",
     ) -> Concrete:
-        r"""Returns a concrete material object to AS 3600:2018.
+        r"""Returns a concrete material object to ACI 318-19.
 
         .. admonition:: Material assumptions
 
-          - *Density*: 2400 kg/m\ :sup:`3`
-
-          - *Elastic modulus*: Interpolated from Table 3.1.2
-
+          - *Density*: entered in kg/m\ :sup:`3`, default 2400 kg/m\ :sup:`3`
+          
           - *Service stress-strain profile*: Linear with no tension, compressive
-            strength at :math:`0.9f'_c`
+            strength at :math:`0.85f'_c`
 
-          - *Ultimate stress-strain profile*: Rectangular stress block, parameters from
-            Cl. 8.1.3
-
-          - *Alpha squash*: From Cl. 10.6.2.2
-
-          - *Flexural tensile strength*: From Cl. 3.1.1.3
+          - *Ultimate stress-strain profile*: Rectangular stress block per ACI 318-19 2.2.2.4.1
 
         :param compressive_strength: Characteristic compressive strength of
             concrete at 28 days in megapascals (MPa)
+            
+        :param density: Unit weight of concrete in kg/m\ :sup:`3`
+            
         :param colour: Colour of the concrete for rendering
 
         :raises ValueError: If ``compressive_strength`` is not between 20 MPa and
-            100 MPa.
+            69 MPa.
+            
+        :raises ValueError: If ``density`` is not between 1440 kg/m\ :sup:`3` and
+            2565 kg/m\ :sup:`3`.
 
         :return: Concrete material object
         """
 
-        if compressive_strength < 20 or compressive_strength > 100:
-            raise ValueError("compressive_strength must be between 20 MPa and 100 MPa.")
-
+        if compressive_strength < 20 or compressive_strength > 69:
+            raise ValueError("compressive_strength must be between 20 MPa and 69 MPa.")
+            
+        if density < 1440 or compressive_strength > 2565:
+            raise ValueError("concrete density must be between 1440 kg/m\ :sup:`3` and 2565 kg/m\ :sup:`3`")
+            
         # create concrete name
-        name = f"{compressive_strength:.0f} MPa Concrete (AS 3600:2018)"
+        name = f"{compressive_strength:.0f} MPa Concrete (ACI 318-19)"
 
-        # calculate elastic modulus
-        fc_list = [20, 25, 32, 40, 50, 65, 80, 100]
-        Ec_list = [24000, 26700, 30100, 32800, 34800, 37400, 39600, 42200]
-        f_Ec = interp1d(fc_list, Ec_list)
-        elastic_modulus = f_Ec(compressive_strength)
+        # calculate elastic modulus per ACI 318-19 22.2.2.1
+        elastic_modulus = (density**1.5) * 0.041 * np.sqrt(compressive_strength)
 
         # calculate stress block parameters
-        alpha = 0.85 - 0.0015 * compressive_strength
-        alpha = max(alpha, 0.67)
-        gamma = 0.97 - 0.0025 * compressive_strength
-        gamma = max(gamma, 0.67)
+        alpha = 0.85
+        # percentage of maximum compressive strength used in Whitney stress block, per ACI 318-19 2.2.2.4.1
+        beta1 = 0.85 - 0.05 * (compressive_strength-28) / 7
+        beta1 = min(beta1, 0.85)
+        beta1 = max(beta1, 0.65)
+        # percentage of section above neutral axis used in Whitney stress block, ACI calls beta_1
+        # corresponds to gamma in AS3600 and base code
+        
+        # calculate lightweight concrete factor lambda per ACI 318-19 19.2.4.1
+        lambda1 = density / 2133
+        lambda1 = min(lambda1, 1.0)
+        lambda1 = max(lambda1, 0.75)
 
-        # calculate flexural_tensile_strength
-        flexural_tensile_strength = 0.6 * np.sqrt(compressive_strength)
+        # calculate flexural_tensile_strength (modulus of rupture) per ACI 318-19 19.2.3.1
+        flexural_tensile_strength = 0.62 * lambda1 * np.sqrt(compressive_strength)
 
         return Concrete(
             name=name,
-            density=2.4e-6,
+            density=density*1e-9,
             stress_strain_profile=ssp.ConcreteLinearNoTension(
                 elastic_modulus=elastic_modulus,
                 ultimate_strain=0.003,
-                compressive_strength=0.9 * compressive_strength,
+                compressive_strength=0.85 * compressive_strength,
             ),
             ultimate_stress_strain_profile=ssp.RectangularStressBlock(
                 compressive_strength=compressive_strength,
                 alpha=alpha,
-                gamma=gamma,
+                gamma=beta1,
                 ultimate_strain=0.003,
             ),
             flexural_tensile_strength=flexural_tensile_strength,
@@ -143,8 +139,7 @@ class AS3600(DesignCode):
 
     def create_steel_material(
         self,
-        yield_strength: float = 500,
-        ductility_class: str = "N",
+        yield_strength: float = 413,
         colour: str = "grey",
     ) -> SteelBar:
         r"""Returns a steel bar material object.
@@ -155,26 +150,23 @@ class AS3600(DesignCode):
 
           - *Elastic modulus*: 200000 MPa
 
-          - *Stress-strain profile*: Elastic-plastic, fracture strain from Table 3.2.1
+          - *Stress-strain profile*: Elastic-plastic, fracture strain from ASTM A615
 
         :param yield_strength: Steel yield strength
-        :param ductility_class: Steel ductility class ("N" or "L")
         :param colour: Colour of the steel for rendering
-
-        :raises ValueError: If ``ductility_class`` is not "N" or "L"
 
         :return: Steel material object
         """
 
-        if ductility_class == "N":
-            fracture_strain = 0.05
-        elif ductility_class == "L":
-            fracture_strain = 0.015
+        if yield_strength <= 425:
+            fracture_strain = 0.07
         else:
-            raise ValueError("ductility_class must be N or L.")
+            fracture_strain = 0.06
+        # maximum elongation for ASTM A615 Gr. 60 bar sizes 9 to 18
+        # Lower grade and smaller bar sizes may have larger elongations
 
         return SteelBar(
-            name=f"{yield_strength:.0f} MPa Steel (AS 3600:2018)",
+            name=f"{yield_strength:.0f} MPa Steel (ACI 318-19)",
             density=7.85e-6,
             stress_strain_profile=ssp.SteelElasticPlastic(
                 yield_strength=yield_strength,
@@ -204,13 +196,13 @@ class AS3600(DesignCode):
                 conc_geom.material.stress_strain_profile.get_compressive_strength()
             )
 
-            if comp_strength:
-                alpha_squash = 1 - 0.003 * comp_strength
-                alpha_squash = min(alpha_squash, 0.85)
-                alpha_squash = max(alpha_squash, 0.72)
-            else:
-                alpha_squash = 1
-
+##            if comp_strength:
+##                alpha_squash = 1 - 0.003 * comp_strength
+##                alpha_squash = min(alpha_squash, 0.85)
+##                alpha_squash = max(alpha_squash, 0.72)
+##            else:
+##                alpha_squash = 1
+##
             # calculate compressive force
             force_c = (
                 area
@@ -225,15 +217,14 @@ class AS3600(DesignCode):
         for steel_geom in self.concrete_section.reinf_geometries_lumped:
             # calculate area
             area = steel_geom.calculate_area()
+            # calculate capacity of steel bars in compression per ACI 318-19 22.4.2.1
+            yield_c = steel_geom.material.stress_strain_profile.get_yield_strength()
+            yield_c = max(yield_c, 550)
 
             # calculate compressive and tensile force
-            force_c = area * steel_geom.material.stress_strain_profile.get_stress(
-                strain=0.025
-            )
-
-            force_t = (
-                -area * steel_geom.material.stress_strain_profile.get_yield_strength()
-            )
+            force_c = area * yield_c
+            
+            force_t = -area * steel_geom.material.stress_strain_profile.get_yield_strength()
 
             # add to totals
             squash_load += force_c
@@ -241,6 +232,8 @@ class AS3600(DesignCode):
 
         return squash_load, tensile_load
 
+## Bookmark -- Lo is here    
+    
     def capacity_reduction_factor(
         self,
         n_u: float,
