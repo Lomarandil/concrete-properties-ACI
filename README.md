@@ -78,7 +78,7 @@ through submitting bug reports, feature requests or pull requests. Please read t
 - [x] Principal second moments of area
 - [x] Centroidal section moduli
 - [x] Principal section moduli
-- [x] Prestressed Aations
+- [x] Prestressed Actions
 
 ### Service Analysis
 
