@@ -352,7 +352,7 @@ class ACI318M(DesignCode):
         phi_t = 0.90
         
         # phi for compression-controlled sections
-        if tie_type == "spirals":
+        if tie_type == "spiral":
             phi_c = 0.75
         else:
             phi_c = 0.65
