@@ -53,7 +53,7 @@ class ACI318M(DesignCode):
                 "Meshed reinforcement is not supported in this design code."
             )
 
-        calculate squash and tensile load
+        #calculate squash and tensile load
         squash, tensile = self.squash_tensile_load(tie_type)
         self.squash_load = squash
         self.tensile_load = tensile
@@ -212,7 +212,7 @@ class ACI318M(DesignCode):
         self.check_density_limits(density)
         
         # create concrete name
-        name = f"{compressive_strength:.0f} MPa Concrete f"\n({self.analysis_code})"
+        name = f"{compressive_strength:.0f} MPa Concrete \n({self.analysis_code})"
 
          # calculate elastic modulus
         elastic_modulus = self.e_conc(compressive_strength, density)
@@ -271,7 +271,7 @@ class ACI318M(DesignCode):
         # Lower grade and smaller bar sizes may have larger elongations
 
         return SteelBar(
-            name=f"{yield_strength:.0f} MPa Steel f"\n({self.analysis_code})",
+            name=f"{yield_strength:.0f} MPa Steel \n({self.analysis_code})",
             density=7.85e-6,
             stress_strain_profile=ssp.SteelElasticPlastic(
                 yield_strength=yield_strength,
@@ -324,9 +324,9 @@ class ACI318M(DesignCode):
             tensile_load += force_t
             
         #limit maximum axial strength (P_n,max) per Table 22.4.2.1
-        if tie_type = "spiral":
+        if tie_type == "spiral":
             squash_load = 0.85*P_0
-        else
+        else:
             squash_load = 0.80*P_0
 
         return squash_load, tensile_load 
@@ -352,9 +352,9 @@ class ACI318M(DesignCode):
         phi_t = 0.90
         
         # phi for compression-controlled sections
-        if tie_type = "spirals":
+        if tie_type == "spirals":
             phi_c = 0.75
-        else
+        else:
             phi_c = 0.65
             
         strain_ty = (
