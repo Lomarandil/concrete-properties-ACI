@@ -331,15 +331,15 @@ class ACI318M(DesignCode):
 
         return squash_load, tensile_load 
 
-## Bookmark -- Lo is here     
-    
     def capacity_reduction_factor(
         self,
+        eps_t: float,
         theta: float,
         tie_type: str ="ties",
     ) -> float:
         """Returns the ACI 318-19 strength reduction factor phi (Table 21.2.2).
-        
+        :param eps_t: net tensile strain in the extreme longitudinal tension 
+        reinforcement at nominal strength.
         :param theta: Angle (in radians) the neutral axis makes with the
         horizontal axis (:math:`-\pi \leq \theta \leq \pi`)
         :param tie_type: Type of transverse reinforcement in the member. Designating
@@ -357,10 +357,7 @@ class ACI318M(DesignCode):
         else:
             phi_c = 0.65
             
-        d_ext, eps_ty = self.concrete_section.extreme_bar(theta=theta) 
-##        eps_t = 0.004     
-        eps_t = -1*utils.get_ultimate_strain()
-## check this!
+        _, eps_ty = self.concrete_section.extreme_bar(theta=theta) 
             
         phi = phi_c + (phi_t-phi_c)*(eps_t-eps_ty)/0.003
         phi = min(phi, phi_t)
@@ -411,6 +408,10 @@ class ACI318M(DesignCode):
         )
 
         return balanced_res.n
+
+    
+## Bookmark -- Lo is here    
+
 
     def ultimate_bending_capacity(
         self,
