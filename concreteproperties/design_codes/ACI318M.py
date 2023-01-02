@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from math import inf
+##from math import inf
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     from concreteproperties.concrete_section import ConcreteSection
 
 
-class ACI318(DesignCode):
-    """Design code class for American standard ACI 318-19.
+class ACI318M(DesignCode):
+    """Design code class for American standard ACI 318-19 in metric units.
 
     .. note::
         Note that this design code only supports
@@ -31,8 +31,8 @@ class ACI318(DesignCode):
     """
 
     def __init__(self):
-        """Inits the ACI318 class."""
-
+        """Inits the ACI318M class."""
+        self.analysis_code = "ACI 318M-19"
         super().__init__()
 
     def assign_concrete_section(
@@ -52,10 +52,131 @@ class ACI318(DesignCode):
                 "Meshed reinforcement is not supported in this design code."
             )
 
-         calculate squash and tensile load
+        calculate squash and tensile load
         squash, tensile = self.squash_tensile_load()
         self.squash_load = squash
         self.tensile_load = tensile
+        
+    def e_conc(self, compressive_strength: float, density: float = 2400) -> float:
+        r"""Calculates Youngs Modulus (:math:`E_c`) for concrete in accordance with
+        ACI 318-19 19.2.2.1a.
+        :math:`E_c=\displaystyle\rho^{1.5}*0.041\sqrt{f'c}`
+        :param compressive_strength: 28 day compressive concrete strength (MPa)
+        :param density: Concrete density :math:`\rho`, defaults to 2400 kg/m\ :sup:`3`
+        for normal weight concrete
+        :return: :math:`E_c`, Youngs Modulus (MPa)
+        """
+        # Check low and high limit on density in ACI 318-19 19.2.2.1a for E_c equation
+        # to be valid
+        low_limit = 1440
+        high_limit = 2565
+
+        # check upper and lower concrete strengths
+        self.check_density_limits(density, low_limit, high_limit)
+
+        E_c = (density**1.5) * 0.041 * np.sqrt(compressive_strength)
+
+        return E_c
+   
+    def check_f_c_limits(
+        self, compressive_strength: float, low_limit: float=17.25, high_limit: float=69.0
+    ) -> None:
+        r"""Checks that the compressive strength is within the supported limits.
+        :param compressive_strength: 28 day compressive concrete strength (MPa)
+        :param low_limit: Lower limit for compressive strength from ACI 318-19 19.2.1.1
+        :param high_limit: Upper limit for compressive strength per program limits
+        :raises ValueError: If compressive strength is outside of supported limits
+        """
+        if compressive_strength < low_limit:
+            raise ValueError(f"compressive_strength must be at least {low_limit}MPa per 19.2.1.1")
+        #Refer to ACI 318-19 19.2.1.1 for minimum concrete compressive strengths per element.
+        #The general limitation of 2500psi or 17.25MPa holds for most non-seismic construction.
+        #Some structures and elements will require a highter minimum compressive strength.
+        
+        if compressive_strength > high_limit:
+            raise ValueError(f"compressive_strength greater than {high_limit}MPa is not supported")
+        #Concrete compressive strengths above 69 MPa will have limitations 
+        #on shear strength per ACI 318-19 22.5.3.1, 22.7.2.1, etc. and additional requirements
+        #for earthquake resistaning special moment frames.
+
+
+    def check_density_limits(
+        self, density: float, low_limit: float, high_limit: float
+    ) -> None:
+        r"""Checks that the density is within the bounds outlined
+        for the elastic modulus expression ACI 318-19 19.2.2.1a to be valid.
+        :param density: Concrete density :math:`\rho` 
+        :param low_limit: Lower limit for density from ACI 318-19 19.2.2.1a
+        :param high_limit: Upper limit for density from ACI 318-19 19.2.2.1a
+        :raises ValueError: If density is outside of the limits within ACI 318-19 19.2.2.1a
+        """
+        if not (low_limit <= density <= high_limit):
+            raise ValueError(
+                f"The specified concrete density of {density}kg/m^3 is not within the "
+                f"bounds of {low_limit}kg/m^3 & {high_limit}kg/m^3 for the "
+                f"{self.analysis_code} Elastic Modulus eqn to be applicable"
+            )
+
+    def alpha_1(self) -> float:
+        r"""Scaling factor relating the nominal 28 day concrete compressive strength to
+        the effective concrete compressive strength used for design purposes within the
+        concrete stress block. in accordance with ACI 318-19 22.2.2.4.1, use 0.85.
+        :param compressive_strength: 28 day compressive design strength (MPa)
+        :return: :math:`\alpha_1` factor
+        """
+
+        alpha_1 = 0.85
+
+        return alpha_1
+
+    def beta_1(self, compressive_strength: float) -> float:
+        r"""Scaling factor relating the depth of an equivalent rectangular compressive
+        stress block (:math:`a`) to the depth of the neutral axis (:math:`c`).
+        A function of the concrete compressive strength, per ACI 318-19 22.2.2.4.3.
+        :math:`\displaystyle\quad\beta_1=0.85-\frac{0.05(f'_c-28)}{7}\quad:0.65\leq\beta_1\leq0.85`
+        :param compressive_strength: 28 day compressive design strength (MPa)
+        :return: :math:`\beta_1` factor
+        """
+
+        beta1 = 0.85 - 0.05 * (compressive_strength-28) / 7
+        beta1 = min(beta1, 0.85)
+        beta1 = max(beta1, 0.65)
+        # corresponds to gamma in AS3600 and base code
+
+        return beta_1
+   
+
+    def lamda(self, density: float) -> float:
+        r"""Modification factor reflecting the reduced mechanical properties of
+        lightweight concrete relative to normal weight concrete of the same compression
+        strength, in accordance with ACI 318-19 19.2.4.1
+        :math:`\displaystyle\quad\lambda=\frac{\rho}{2133}\quad:0.75\leq\lambda\leq1.0`
+        :param density: Equilibrium density of concrete mixture
+        :return: :math:`\lambda` factor
+        """
+        
+        lamda = density / 2133
+        lamda = min(lamda, 1.0)
+        lamda = max(lamda, 0.75)
+
+        return lamda
+
+    def modulus_of_rupture(
+        self,
+        compressive_strength: float,
+        density: float = 2400,
+    ) -> float:
+        r"""Calculates the average modulus of rupture of concrete (:math:`f_r`) in
+        accordance with ACI 318-19 19.2.3.1 for deflection calculations.
+        :math:`\quad f_r=0.62\lambda({f'_c})^{0.5}`
+        :param compressive_strength: 28 day compressive design strength (MPa)
+        :param density: Density of concrete material
+        :return: Modulus of rupture (:math:`f_r`)
+        """
+
+        f_r = 0.62 * self.lamda(density) * np.sqrt(compressive_strength)
+
+        return f_r
 
     def create_concrete_material(
         self,
@@ -63,61 +184,43 @@ class ACI318(DesignCode):
         density: float = 2400,
         colour: str = "lightgrey",
     ) -> Concrete:
-        r"""Returns a concrete material object to ACI 318-19.
+        r"""Returns a concrete material object to ACI 318-19M.
 
         .. admonition:: Material assumptions
 
           - *Density*: entered in kg/m\ :sup:`3`, default 2400 kg/m\ :sup:`3`
           
+          - *Elastic modulus*: Calculated from ACI 318-19 19.2.2.1a
+          
           - *Service stress-strain profile*: Linear with no tension, compressive
             strength at :math:`0.85f'_c`
 
-          - *Ultimate stress-strain profile*: Rectangular stress block per ACI 318-19 2.2.2.4.1
+          - *Ultimate stress-strain profile*: Rectangular stress block per ACI 318-19 22.2.2.4.1
 
         :param compressive_strength: Characteristic compressive strength of
             concrete at 28 days in megapascals (MPa)
             
-        :param density: Unit weight of concrete in kg/m\ :sup:`3`
+        :param density: Density of concrete in kg/m\ :sup:`3`
             
         :param colour: Colour of the concrete for rendering
-
-        :raises ValueError: If ``compressive_strength`` is not between 20 MPa and
-            69 MPa.
-            
-        :raises ValueError: If ``density`` is not between 1440 kg/m\ :sup:`3` and
-            2565 kg/m\ :sup:`3`.
 
         :return: Concrete material object
         """
 
-        if compressive_strength < 20 or compressive_strength > 69:
-            raise ValueError("compressive_strength must be between 20 MPa and 69 MPa.")
-            
-        if density < 1440 or compressive_strength > 2565:
-            raise ValueError("concrete density must be between 1440 kg/m\ :sup:`3` and 2565 kg/m\ :sup:`3`")
-            
-        # create concrete name
-        name = f"{compressive_strength:.0f} MPa Concrete (ACI 318-19)"
-
-        # calculate elastic modulus per ACI 318-19 22.2.2.1
-        elastic_modulus = (density**1.5) * 0.041 * np.sqrt(compressive_strength)
-
-        # calculate stress block parameters
-        alpha = 0.85
-        # percentage of maximum compressive strength used in Whitney stress block, per ACI 318-19 2.2.2.4.1
-        beta1 = 0.85 - 0.05 * (compressive_strength-28) / 7
-        beta1 = min(beta1, 0.85)
-        beta1 = max(beta1, 0.65)
-        # percentage of section above neutral axis used in Whitney stress block, ACI calls beta_1
-        # corresponds to gamma in AS3600 and base code
+        self.check_density_limits(density)
         
-        # calculate lightweight concrete factor lambda per ACI 318-19 19.2.4.1
-        lambda1 = density / 2133
-        lambda1 = min(lambda1, 1.0)
-        lambda1 = max(lambda1, 0.75)
+        # create concrete name
+        name = f"{compressive_strength:.0f} MPa Concrete f"\n({self.analysis_code})"
 
-        # calculate flexural_tensile_strength (modulus of rupture) per ACI 318-19 19.2.3.1
-        flexural_tensile_strength = 0.62 * lambda1 * np.sqrt(compressive_strength)
+         # calculate elastic modulus
+        elastic_modulus = self.e_conc(compressive_strength, density)
+
+        # calculate rectangular stress block parameters
+        alpha_1 = self.alpha_1()
+        beta_1 = self.beta_1(compressive_strength)
+        
+        # calculate lightweight concrete factor lambda
+        lamda = self.lamda(density)
 
         return Concrete(
             name=name,
@@ -125,7 +228,7 @@ class ACI318(DesignCode):
             stress_strain_profile=ssp.ConcreteLinearNoTension(
                 elastic_modulus=elastic_modulus,
                 ultimate_strain=0.003,
-                compressive_strength=0.85 * compressive_strength,
+                compressive_strength=alpha_1 * compressive_strength,
             ),
             ultimate_stress_strain_profile=ssp.RectangularStressBlock(
                 compressive_strength=compressive_strength,
@@ -133,7 +236,7 @@ class ACI318(DesignCode):
                 gamma=beta1,
                 ultimate_strain=0.003,
             ),
-            flexural_tensile_strength=flexural_tensile_strength,
+            flexural_tensile_strength=0,
             colour=colour,
         )
 
@@ -166,7 +269,7 @@ class ACI318(DesignCode):
         # Lower grade and smaller bar sizes may have larger elongations
 
         return SteelBar(
-            name=f"{yield_strength:.0f} MPa Steel (ACI 318-19)",
+            name=f"{yield_strength:.0f} MPa Steel f"\n({self.analysis_code})",
             density=7.85e-6,
             stress_strain_profile=ssp.SteelElasticPlastic(
                 yield_strength=yield_strength,
