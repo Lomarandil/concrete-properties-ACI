@@ -234,8 +234,8 @@ class ACI318M(DesignCode):
             ),
             ultimate_stress_strain_profile=ssp.RectangularStressBlock(
                 compressive_strength=compressive_strength,
-                alpha=alpha,
-                gamma=beta1,
+                alpha=alpha_1,
+                gamma=beta_1,
                 ultimate_strain=0.003,
             ),
             flexural_tensile_strength=0,
