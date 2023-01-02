@@ -209,7 +209,7 @@ class ACI318M(DesignCode):
         :return: Concrete material object
         """
 
-        self.check_density_limits(density)
+##        self.check_density_limits(density)
         
         # create concrete name
         name = f"{compressive_strength:.0f} MPa Concrete \n({self.analysis_code})"
@@ -357,15 +357,12 @@ class ACI318M(DesignCode):
         else:
             phi_c = 0.65
             
-        strain_ty = (
-            extreme_geom.material.stress_strain_profile.get_yield_strength()/
-            extreme_geom.material.stress_strain_profile.get_elastic_modulus()+0.003
-        )
-## check this!        
-        strain_t = extreme_geom.material.stress_strain_profile.get_ultimate_tensile_strain
+        d_ext, eps_ty = self.concrete_section.extreme_bar(theta=theta) 
+##        eps_t = 0.004     
+        eps_t = -1*utils.get_ultimate_strain()
 ## check this!
             
-        phi = phi_c + (phi_t-phi_c)*(strain_t-strain_ty)/0.003
+        phi = phi_c + (phi_t-phi_c)*(eps_t-eps_ty)/0.003
         phi = min(phi, phi_t)
         phi = max(phi, phi_c)
         
