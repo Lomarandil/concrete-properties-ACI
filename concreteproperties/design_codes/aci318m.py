@@ -140,9 +140,9 @@ class ACI318M(DesignCode):
         :return: :math:`\beta_1` factor
         """
 
-        beta1 = 0.85 - 0.05 * (compressive_strength-28) / 7
-        beta1 = min(beta1, 0.85)
-        beta1 = max(beta1, 0.65)
+        beta_1 = 0.85 - 0.05 * (compressive_strength-28) / 7
+        beta_1 = min(beta_1, 0.85)
+        beta_1 = max(beta_1, 0.65)
         # corresponds to gamma in AS3600 and base code
 
         return beta_1
