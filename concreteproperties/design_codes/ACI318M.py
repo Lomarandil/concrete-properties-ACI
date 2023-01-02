@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-##from math import inf
+from math import inf
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
@@ -184,7 +184,7 @@ class ACI318M(DesignCode):
         density: float = 2400,
         colour: str = "lightgrey",
     ) -> Concrete:
-        r"""Returns a concrete material object to ACI 318-19M.
+        r"""Returns a concrete material object to ACI 318M-19.
 
         .. admonition:: Material assumptions
 
