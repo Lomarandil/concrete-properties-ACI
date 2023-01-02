@@ -26,8 +26,9 @@ class ACI318M(DesignCode):
         Note that this design code only supports
         :class:`~concreteproperties.material.Concrete` and
         :class:`~concreteproperties.material.SteelBar` material objects. Meshed
-        :class:`~concreteproperties.material.Steel` material objects are **not**
-        currently supported.
+        :class:`~concreteproperties.material.Steel` material objects and
+        :class:'~concreteproperties.material.SteelStrand' material objects are 
+        **not** currently supported.
     """
 
     def __init__(self):
@@ -37,7 +38,7 @@ class ACI318M(DesignCode):
 
     def assign_concrete_section(
         self,
-        concrete_section: ConcreteSection,
+        concrete_section: ConcreteSection, tie_type:str = "ties"
     ):
         """Assigns a concrete section to the design code.
 
@@ -53,7 +54,7 @@ class ACI318M(DesignCode):
             )
 
         calculate squash and tensile load
-        squash, tensile = self.squash_tensile_load()
+        squash, tensile = self.squash_tensile_load(tie_type)
         self.squash_load = squash
         self.tensile_load = tensile
         
@@ -120,7 +121,8 @@ class ACI318M(DesignCode):
     def alpha_1(self) -> float:
         r"""Scaling factor relating the nominal 28 day concrete compressive strength to
         the effective concrete compressive strength used for design purposes within the
-        concrete stress block. in accordance with ACI 318-19 22.2.2.4.1, use 0.85.
+        concrete stress block. For rectangular "Whitney" stress block in accordance with 
+        ACI 318-19 22.2.2.4.1, use 0.85.
         :param compressive_strength: 28 day compressive design strength (MPa)
         :return: :math:`\alpha_1` factor
         """
@@ -279,13 +281,14 @@ class ACI318M(DesignCode):
             colour=colour,
         )
 
-    def squash_tensile_load(self) -> Tuple[float, float]:
+    def squash_tensile_load(self, tie_type:str = "ties") -> Tuple[float, float]:
         """Calculates the squash and tensile load of the reinforced concrete section.
 
         :return: Squash and tensile load
         """
 
-        # initialise the squash load, tensile load and squash moment variables
+        # initialise the P_0, squash load, and tensile load variables
+        P_0 = 0
         squash_load = 0
         tensile_load = 0
 
@@ -294,27 +297,14 @@ class ACI318M(DesignCode):
             # calculate area
             area = conc_geom.calculate_area()
 
-            # calculate alpha_squash
-            comp_strength = (
-                conc_geom.material.stress_strain_profile.get_compressive_strength()
-            )
-
-##            if comp_strength:
-##                alpha_squash = 1 - 0.003 * comp_strength
-##                alpha_squash = min(alpha_squash, 0.85)
-##                alpha_squash = max(alpha_squash, 0.72)
-##            else:
-##                alpha_squash = 1
-##
             # calculate compressive force
             force_c = (
                 area
-                * alpha_squash
                 * conc_geom.material.ultimate_stress_strain_profile.get_compressive_strength()
             )
 
             # add to totals
-            squash_load += force_c
+            P_0 += force_c
 
         # loop through all steel geometries
         for steel_geom in self.concrete_section.reinf_geometries_lumped:
@@ -330,56 +320,57 @@ class ACI318M(DesignCode):
             force_t = -area * steel_geom.material.stress_strain_profile.get_yield_strength()
 
             # add to totals
-            squash_load += force_c
+            P_0 += force_c
             tensile_load += force_t
+            
+        #limit maximum axial strength (P_n,max) per Table 22.4.2.1
+        if tie_type = "spiral":
+            squash_load = 0.85*P_0
+        else
+            squash_load = 0.80*P_0
 
-        return squash_load, tensile_load
+        return squash_load, tensile_load 
 
-## Bookmark -- Lo is here    
+## Bookmark -- Lo is here     
     
     def capacity_reduction_factor(
         self,
-        n_u: float,
-        n_ub: float,
-        n_uot: float,
-        k_uo: float,
-        phi_0: float,
+        theta: float,
+        tie_type: str ="ties",
     ) -> float:
-        """Returns the AS 3600:2018 capacity reduction factor (Table 2.2.2).
-
-        ``n_ub`` and ``phi_0`` only required for compression, ``n_uot`` only required
-        for tension.
-
-        :param n_u: Axial force in member
-        :param n_ub: Axial force at balanced point
-        :param n_uot: Axial force at ultimate tension load
-        :param k_uo: Neutral axis parameter at pure bending
-        :param phi_0: Capacity reduction factor for dominant compression
+        """Returns the ACI 318-19 strength reduction factor phi (Table 21.2.2).
+        
+        :param theta: Angle (in radians) the neutral axis makes with the
+        horizontal axis (:math:`-\pi \leq \theta \leq \pi`)
+        :param tie_type: Type of transverse reinforcement in the member. Designating
+        "spiral" reinforcement will allow larger capacity factor. Defaults to "ties".
 
         :return: Capacity reduction factor
         """
 
-        # pure bending phi
-        if self.reinforcement_class == "N":
-            phi = 1.24 - 13 * k_uo / 12
-            phi = min(phi, 0.85)
-            phi = max(phi, 0.65)
-        else:
-            phi = 0.65
-
-        # compression
-        if n_u > 0:
-            if n_u >= n_ub:
-                return phi_0
-            else:
-                return phi_0 + (phi - phi_0) * (1 - n_u / n_ub)
-        # tension
-        else:
-            if self.reinforcement_class == "N":
-                return phi + (0.85 - phi) * (n_u / n_uot)
-            else:
-                return 0.65
-
+        # phi for tension-controlled sections (e.g. pure bending)
+        phi_t = 0.90
+        
+        # phi for compression-controlled sections
+        if tie_type = "spirals":
+            phi_c = 0.75
+        else
+            phi_c = 0.65
+            
+        strain_ty = (
+            extreme_geom.material.stress_strain_profile.get_yield_strength()/
+            extreme_geom.material.stress_strain_profile.get_elastic_modulus()+0.003
+        )
+## check this!        
+        strain_t = extreme_geom.material.stress_strain_profile.get_ultimate_tensile_strain
+## check this!
+            
+        phi = phi_c + (phi_t-phi_c)*(strain_t-strain_ty)/0.003
+        phi = min(phi, phi_t)
+        phi = max(phi, phi_c)
+        
+        return phi
+        
     def get_k_uo(
         self,
         theta: float,
