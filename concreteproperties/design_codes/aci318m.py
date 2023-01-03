@@ -78,29 +78,71 @@ class ACI318M(DesignCode):
         E_c = (density**1.5) * 0.041 * np.sqrt(compressive_strength)
 
         return E_c
-   
+
+##Check this!       
     def check_f_c_limits(
-        self, compressive_strength: float, low_limit: float=17.25, high_limit: float=69.0
+        self, compressive_strength: float, LFRS: str =  "Special Seismic",
+        low_limit: float, high_limit: float
     ) -> None:
         r"""Checks that the compressive strength is within the supported limits.
         :param compressive_strength: 28 day compressive concrete strength (MPa)
+        :param LFRS: Flag for special seismic resisting lateral force resisting systems.
         :param low_limit: Lower limit for compressive strength from ACI 318-19 19.2.1.1
         :param high_limit: Upper limit for compressive strength per program limits
         :raises ValueError: If compressive strength is outside of supported limits
         """
+        if LFRS == "NOT Special Seismic":
+            low_limit = 17.25
+        else:
+            low_limit = 20.7
+        
         if compressive_strength < low_limit:
             raise ValueError(f"compressive_strength must be at least {low_limit}MPa per 19.2.1.1")
         #Refer to ACI 318-19 19.2.1.1 for minimum concrete compressive strengths per element.
         #The general limitation of 2500psi or 17.25MPa holds for most non-seismic construction.
         #Some structures and elements will require a highter minimum compressive strength.
         
+        if LFRS == "NOT Special Seismic":
+            high_limit = inf
+        else:
+            high_limit = 69
+        
         if compressive_strength > high_limit:
-            raise ValueError(f"compressive_strength greater than {high_limit}MPa is not supported")
+            raise Warning(f"compressive_strength greater than {high_limit}MPa has additional req's")
         #Concrete compressive strengths above 69 MPa will have limitations 
         #on shear strength per ACI 318-19 22.5.3.1, 22.7.2.1, etc. and additional requirements
         #for earthquake resistaning special moment frames.
 
+##Check this!        
+    def check_f_y_limit(self, LFRS: str =  "Special Seismic") -> None:
+        """Checks that the specified steel reinforcement strengths for all defined
+        steel geometries comply with ACI Table 20.2.2.4.
+        :param LFRS: Flag for special seismic resisting lateral force resisting systems.
+        """
+        # Retrieve predefined names of probable strength based materials
+        _, _, prob_properties = self.predefined_steel_materials()
 
+        if LFRS == "NOT Special Seismic":
+            f_y_upper = 690
+        else:
+            f_y_upper = 550
+        # for special seismic resisting elements, use 80ksi or 550MPa limit
+
+        # loop through all steel geometries
+        for steel_geom in self.concrete_section.reinf_geometries_lumped:
+
+            # retrieve yield strength
+            yield_strength = (
+                steel_geom.material.stress_strain_profile.get_yield_strength()
+            )
+            if yield_strength > f_y_upper:
+                raise ValueError(
+                        f"Steel yield strength for '{steel_geom.material.name}' "
+                        f"material must be less than {f_y_upper} MPa for the "
+                        f"{self.analysis_code} code, {yield_strength:.0f} MPa was "
+                        f"specified for this material"
+                )
+  
     def check_density_limits(
         self, density: float, low_limit: float, high_limit: float
     ) -> None:
@@ -208,8 +250,6 @@ class ACI318M(DesignCode):
 
         :return: Concrete material object
         """
-
-##        self.check_density_limits(density)
         
         # create concrete name
         name = f"{compressive_strength:.0f} MPa Concrete \n({self.analysis_code})"
@@ -417,15 +457,13 @@ class ACI318M(DesignCode):
         self,
         theta: float = 0,
         n_design: float = 0,
-        phi_0: float = 0.6,
     ) -> Tuple[res.UltimateBendingResults, res.UltimateBendingResults, float]:
-        r"""Calculates the ultimate bending capacity with capacity factors to
-        AS 3600:2018.
-
+        r"""Calculates the ultimate bending capacity with strength reduction factors to
+        ACI 318-19
+        
         :param theta: Angle (in radians) the neutral axis makes with the horizontal axis
             (:math:`-\pi \leq \theta \leq \pi`)
         :param n_design: Design axial force, N*
-        :param phi_0: Compression dominant capacity reduction factor, see Table 2.2.2(d)
 
         :return: Factored and unfactored ultimate bending results objects, and capacity
             reduction factor *(factored_results, unfactored_results, phi)*
@@ -469,53 +507,7 @@ class ACI318M(DesignCode):
             progress_bar=False,
         )
 
-        # get significant axial loads
-        n_squash = f_mi_res.results[0].n
-        n_decomp = f_mi_res.results[1].n
-        n_tensile = f_mi_res.results[-1].n
-
-        # DETERMINE where we are on interaction diagram
-        # if we are above the squash load or tensile load
-        if n_design > n_squash:
-            raise utils.AnalysisError(
-                f"N = {n_design} is greater than the squash load, phiNc = {n_squash}."
-            )
-        elif n_design < n_tensile:
-            raise utils.AnalysisError(
-                f"N = {n_design} is greater than the tensile load, phiNt = {n_tensile}"
-            )
-        # compression linear interpolation
-        elif n_design > n_decomp:
-            factor = (n_design - n_decomp) / (n_squash - n_decomp)
-            squash = f_mi_res.results[0]
-            decomp = f_mi_res.results[1]
-            ult_res = res.UltimateBendingResults(
-                theta=theta,
-                d_n=inf,
-                k_u=0,
-                n=n_design / phi,
-                m_x=(decomp.m_x + factor * (squash.m_x - decomp.m_x)) / phi,
-                m_y=(decomp.m_y + factor * (squash.m_y - decomp.m_y)) / phi,
-                m_xy=(decomp.m_xy + factor * (squash.m_xy - decomp.m_xy)) / phi,
-            )
-        # regular calculation
-        elif n_design > 0:
-            ult_res = self.concrete_section.ultimate_bending_capacity(
-                theta=theta, n=n_design / phi
-            )
-        # tensile linear interpolation
-        else:
-            factor = n_design / n_tensile
-            pure = f_mi_res.results[-2]
-            ult_res = res.UltimateBendingResults(
-                theta=theta,
-                d_n=inf,
-                k_u=0,
-                n=n_design / phi,
-                m_x=(1 - factor) * pure.m_x / phi,
-                m_y=(1 - factor) * pure.m_y / phi,
-                m_xy=(1 - factor) * pure.m_xy / phi,
-            )
+      
 
         # factor ultimate results
         f_ult_res = deepcopy(ult_res)
@@ -529,21 +521,20 @@ class ACI318M(DesignCode):
     def moment_interaction_diagram(
         self,
         theta: float = 0,
-        limits: List[Tuple[str, float]] = [
-            ("D", 1.0),
-            ("N", 0.0),
-        ],
         control_points: List[Tuple[str, float]] = [
             ("fy", 1.0),
+            ("fy", 0.5),
+            ("fy", 0.0),
+            ("N", 0.0),
         ],
         labels: Optional[List[str]] = None,
         n_points: int = 24,
         n_spacing: Optional[int] = None,
-        phi_0: float = 0.6,
+        max_comp_labels: Optional[List[str]] = None,
         progress_bar: bool = True,
     ) -> Tuple[res.MomentInteractionResults, res.MomentInteractionResults, List[float]]:
-        r"""Generates a moment interaction diagram with capacity factors to
-        AS 3600:2018.
+        r"""Generates a moment interaction diagram with strength reduction factors to
+        ACI 318-19.
 
         See :meth:`concreteproperties.concrete_section.ConcreteSection.moment_interaction_diagram`
         for allowable control points.
@@ -576,13 +567,20 @@ class ACI318M(DesignCode):
             that using ``n_spacing`` negatively affects performance, as the neutral axis
             depth must first be located for each point on the moment interaction
             diagram.
-        :param phi_0: Compression dominant capacity reduction factor, see Table 2.2.2(d)
+        :param max_comp_labels: Labels to apply to the ``max_comp`` intersection points,
+            first value is at zero moment, second value is at the intersection with the
+            interaction diagram.
         :param progress_bar: If set to True, displays the progress bar
 
         :return: Factored and unfactored moment interaction results objects, and list of
             capacity reduction factors *(factored_results, unfactored_results, phis)*
         """
+        # Check ACI 318-19 19.2.1.1 concrete compressive strength limits
+        self.check_f_c_limits()
 
+        # Check ACI 318-19 20.2.2.4 steel reinforcement yield strength limit
+        self.check_f_y_limit()
+        
         mi_res = self.concrete_section.moment_interaction_diagram(
             theta=theta,
             limits=limits,
