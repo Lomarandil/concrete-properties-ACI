@@ -285,6 +285,7 @@ class ACI318M(DesignCode):
     def create_steel_material(
         self,
         yield_strength: float = 413,
+        fracture_strain: float = 0.06,
         colour: str = "grey",
     ) -> SteelBar:
         r"""Returns a steel bar material object.
@@ -295,18 +296,21 @@ class ACI318M(DesignCode):
 
           - *Elastic modulus*: 200000 MPa
 
-          - *Stress-strain profile*: Elastic-plastic, fracture strain from ASTM A615
+          - *Stress-strain profile*: Elastic-plastic
+          
+          - *Fracture strain*: 6% minimum for A615 and A706
 
         :param yield_strength: Steel yield strength
+        :param grade: Steel ASTM designation
         :param colour: Colour of the steel for rendering
 
         :return: Steel material object
         """
 
-        if yield_strength <= 425:
-            fracture_strain = 0.07
-        else:
-            fracture_strain = 0.06
+        ##if yield_strength <= 425:
+        ##    fracture_strain = 0.07
+        ##else:
+        ##    fracture_strain = 0.06
         # maximum elongation for ASTM A615 Gr. 60 bar sizes 9 to 18
         # Lower grade and smaller bar sizes may have larger elongations
 
